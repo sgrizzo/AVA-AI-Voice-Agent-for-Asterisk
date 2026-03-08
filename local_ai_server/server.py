@@ -1009,6 +1009,8 @@ class LocalAIServer:
         self.stt_backend = config.stt_backend
         self.stt_model_path = config.stt_model_path
         self.sherpa_model_path = config.sherpa_model_path
+        self.sherpa_model_type = config.sherpa_model_type
+        self.sherpa_vad_model_path = config.sherpa_vad_model_path
         self.faster_whisper_model = config.faster_whisper_model
         self.faster_whisper_device = config.faster_whisper_device
         self.faster_whisper_compute = config.faster_whisper_compute
