@@ -2181,7 +2181,7 @@ class LocalAIServer:
                 model_path=self.silero_model_path,
             )
 
-            if not self.silero_backend.initialize():
+            if not await asyncio.to_thread(self.silero_backend.initialize):
                 raise RuntimeError("Failed to initialize Silero TTS")
 
             logging.info(
@@ -2237,6 +2237,12 @@ class LocalAIServer:
             except Exception as exc:  # pragma: no cover
                 logging.debug("MeloTTS backend shutdown failed: %s", exc, exc_info=True)
             self.melotts_backend = None
+        if self.silero_backend:
+            try:
+                self.silero_backend.shutdown()
+            except Exception:
+                pass
+            self.silero_backend = None
         self.stt_model = None
         self.tts_model = None
         self.llm_model = None
@@ -3050,10 +3056,15 @@ class LocalAIServer:
                 wav_data = wav_file.read()
 
             # Convert to 8kHz uLaw (at 8kHz native, sox only does PCM->ulaw encoding)
-            ulaw_data = await asyncio.to_thread(
-                self.audio_processor.convert_to_ulaw_8k, wav_data, self.silero_sample_rate
-            )
-            os.unlink(wav_path)
+            try:
+                ulaw_data = await asyncio.to_thread(
+                    self.audio_processor.convert_to_ulaw_8k, wav_data, self.silero_sample_rate
+                )
+            finally:
+                try:
+                    os.unlink(wav_path)
+                except OSError:
+                    pass
 
             logging.info("🔊 TTS RESULT - Silero generated uLaw 8kHz audio: %s bytes", len(ulaw_data))
             return ulaw_data

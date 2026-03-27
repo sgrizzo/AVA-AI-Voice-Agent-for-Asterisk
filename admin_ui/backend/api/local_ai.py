@@ -1332,11 +1332,15 @@ class RebuildRequest(BaseModel):
     include_melotts: bool = False
     include_kroko_embedded: bool = False
     include_tone: bool = False
+    include_silero: Optional[bool] = None
     # STT/TTS config to apply after rebuild
     stt_backend: Optional[str] = None
     stt_model: Optional[str] = None
     tts_backend: Optional[str] = None
     tts_voice: Optional[str] = None
+    silero_speaker: Optional[str] = None
+    silero_language: Optional[str] = None
+    silero_model_id: Optional[str] = None
 
 
 class RebuildResponse(BaseModel):
@@ -1382,7 +1386,10 @@ async def rebuild_local_ai_server(request: RebuildRequest):
     if request.include_tone:
         build_args.append("--build-arg")
         build_args.append("INCLUDE_TONE=true")
-    
+    if request.include_silero:
+        build_args.append("--build-arg")
+        build_args.append("INCLUDE_SILERO=true")
+
     if not build_args:
         return RebuildResponse(
             success=False,
@@ -1413,7 +1420,9 @@ async def rebuild_local_ai_server(request: RebuildRequest):
         env_updates["INCLUDE_KROKO_EMBEDDED"] = "true"
     if request.include_tone:
         env_updates["INCLUDE_TONE"] = "true"
-    
+    if request.include_silero:
+        env_updates["INCLUDE_SILERO"] = "true"
+
     if request.stt_backend:
         env_updates["LOCAL_STT_BACKEND"] = request.stt_backend
         if request.stt_model:
@@ -1446,7 +1455,15 @@ async def rebuild_local_ai_server(request: RebuildRequest):
                     env_updates["KOKORO_VOICE"] = (previous_env.get("KOKORO_VOICE") or "af_heart").strip() or "af_heart"
                 else:
                     env_updates["KOKORO_VOICE"] = request.tts_voice
-    
+            elif request.tts_backend == "silero":
+                if request.silero_speaker:
+                    env_updates["SILERO_SPEAKER"] = request.silero_speaker
+                if request.silero_language:
+                    env_updates["SILERO_LANGUAGE"] = request.silero_language
+                if request.silero_model_id:
+                    env_updates["SILERO_MODEL_ID"] = request.silero_model_id
+                env_updates["INCLUDE_SILERO"] = "true"
+
     if env_updates:
         _update_env_file(env_file, env_updates)
     
