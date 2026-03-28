@@ -11132,7 +11132,13 @@ class Engine:
                     threshold_met = words >= min_words or chars >= min_chars
                     
                     if not threshold_met:
-                        if not force:
+                        if force:
+                            pending_segments.clear()
+                            if from_flush:
+                                flush_task = None
+                            else:
+                                await cancel_flush()
+                        else:
                             logger.debug(
                                 "Accumulating transcript before LLM",
                                 call_id=call_id,
@@ -11140,7 +11146,7 @@ class Engine:
                                 chars=chars,
                                 words=words,
                             )
-                            return
+                        return
                     if from_flush:
                         flush_task = None
                     else:

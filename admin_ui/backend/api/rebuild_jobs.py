@@ -25,11 +25,9 @@ logger = logging.getLogger(__name__)
 BUILD_TIME_ESTIMATES = {
     "faster_whisper": 180,  # ~3 min
     "whisper_cpp": 240,     # ~4 min
-    "tone": 300,            # ~5 min (kenlm/pyctcdecode install)
     "melotts": 300,         # ~5 min
     "kroko_embedded": 120,  # ~2 min
     "vosk": 60,             # ~1 min
-    "silero": 180,          # ~3 min (torch + model cache)
     "default": 180,         # ~3 min fallback
 }
 
@@ -37,7 +35,6 @@ BUILD_TIME_ESTIMATES = {
 BACKEND_BUILD_ARGS = {
     "faster_whisper": "INCLUDE_FASTER_WHISPER",
     "whisper_cpp": "INCLUDE_WHISPER_CPP",
-    "tone": "INCLUDE_TONE",
     "melotts": "INCLUDE_MELOTTS",
     "kroko_embedded": "INCLUDE_KROKO_EMBEDDED",
     "vosk": "INCLUDE_VOSK",
@@ -45,7 +42,6 @@ BACKEND_BUILD_ARGS = {
     "piper": "INCLUDE_PIPER",
     "kokoro": "INCLUDE_KOKORO",
     "sherpa": "INCLUDE_SHERPA",
-    "silero": "INCLUDE_SILERO",
 }
 
 # Defaults used when keys are not present in `.env`.
@@ -53,7 +49,6 @@ BACKEND_BUILD_ARGS = {
 _DEFAULT_INCLUDE_BASE: Dict[str, bool] = {
     "faster_whisper": False,
     "whisper_cpp": False,
-    "tone": False,
     "melotts": False,
     "kroko_embedded": False,
     "vosk": True,
@@ -61,7 +56,6 @@ _DEFAULT_INCLUDE_BASE: Dict[str, bool] = {
     "piper": True,
     "kokoro": True,
     "sherpa": True,
-    "silero": False,
 }
 
 _DEFAULT_INCLUDE_GPU: Dict[str, bool] = {
@@ -69,7 +63,6 @@ _DEFAULT_INCLUDE_GPU: Dict[str, bool] = {
     # On GPU builds, Whisper backends default on (docker-compose.gpu.yml).
     "faster_whisper": True,
     "whisper_cpp": True,
-    "tone": False,
 }
 
 
