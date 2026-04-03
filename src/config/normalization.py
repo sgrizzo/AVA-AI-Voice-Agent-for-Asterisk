@@ -272,7 +272,7 @@ class ConfigValidationError(Exception):
 
 # Known full-agent providers (multiple capabilities allowed)
 FULL_AGENT_PROVIDERS = frozenset({
-    "openai_realtime", "deepgram", "google_live", "local"
+    "openai_realtime", "azure_openai_realtime", "deepgram", "google_live", "local"
 })
 
 # Valid modular role suffixes

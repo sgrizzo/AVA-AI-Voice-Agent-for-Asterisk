@@ -549,6 +549,59 @@ class MCPConfig(BaseModel):
     servers: Dict[str, MCPServerConfig] = Field(default_factory=dict)
 
 
+class AzureOpenAIRealtimeProviderConfig(BaseModel):
+    """Azure OpenAI Realtime provider configuration.
+
+    Connects to Azure OpenAI GPT realtime models via WebSocket.
+    Supports both GA (model=) and preview (deployment=, api-version=) endpoints.
+
+    GA endpoint example:
+        wss://<resource>.openai.azure.com/openai/v1/realtime?model=<deployment-name>
+    Preview endpoint example:
+        wss://<resource>.openai.azure.com/openai/realtime?api-version=2025-04-01-preview&deployment=<deployment-name>
+
+    Authentication:
+        - api_key: Azure OpenAI API key (injected via AZURE_OPENAI_API_KEY env var)
+        - resource_name: Azure OpenAI resource name (e.g. "my-eastus2-openai-resource")
+        - api_version: "ga" or "preview" (controls query param format)
+    """
+
+    enabled: bool = Field(default=True)
+    api_key: Optional[str] = None
+    resource_name: str = Field(default="")  # Azure OpenAI resource name (no .openai.azure.com suffix)
+    # "ga" = GA API (?model=<deployment>)
+    # "preview" = Preview API (?api-version=...&deployment=<deployment>)
+    api_version: str = Field(default="ga")
+    # Azure preview API version string (only used when api_version="preview")
+    preview_api_version: str = Field(default="2025-04-01-preview")
+    # Deployment name as configured in Azure OpenAI Studio
+    deployment: str = Field(default="gpt-4o-realtime-preview")
+    voice: str = Field(default="alloy")
+    instructions: Optional[str] = None
+    input_encoding: str = Field(default="slin16")
+    input_sample_rate_hz: int = Field(default=8000)
+    provider_input_encoding: str = Field(default="linear16")
+    provider_input_sample_rate_hz: int = Field(default=24000)
+    input_gain_target_rms: int = Field(default=0)
+    input_gain_max_db: float = Field(default=0.0)
+    output_encoding: str = Field(default="linear16")
+    output_sample_rate_hz: int = Field(default=24000)
+    target_encoding: str = Field(default="ulaw")
+    target_sample_rate_hz: int = Field(default=8000)
+    response_modalities: List[str] = Field(default_factory=lambda: ["text", "audio"])
+    egress_pacer_enabled: bool = Field(default=False)
+    egress_pacer_warmup_ms: int = Field(default=320)
+    greeting: Optional[str] = None
+
+    class TurnDetectionConfig(BaseModel):
+        type: str = Field(default="server_vad")
+        silence_duration_ms: int = Field(default=200)
+        threshold: float = Field(default=0.5)
+        prefix_padding_ms: int = Field(default=200)
+
+    turn_detection: Optional[TurnDetectionConfig] = None
+
+
 class OpenAIRealtimeProviderConfig(BaseModel):
     enabled: bool = Field(default=True)
     api_key: Optional[str] = None

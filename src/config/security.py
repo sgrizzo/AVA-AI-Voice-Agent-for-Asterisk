@@ -275,6 +275,18 @@ def inject_provider_api_keys(config_data: Dict[str, Any]) -> None:
                 # Stale pointer — remove so ADC falls back to API-key mode
                 os.environ.pop("GOOGLE_APPLICATION_CREDENTIALS", None)
 
+        # Inject AZURE_OPENAI_API_KEY for Azure OpenAI Realtime provider blocks
+        azure_oai_key = os.getenv("AZURE_OPENAI_API_KEY")
+        if azure_oai_key:
+            for provider_name, provider_cfg in list(providers_block.items()):
+                if not isinstance(provider_cfg, dict):
+                    continue
+                name_lower = str(provider_name).lower()
+                cfg_type = str(provider_cfg.get("type", "")).lower()
+                if name_lower.startswith("azure_openai") or cfg_type == "azure_openai":
+                    provider_cfg["api_key"] = azure_oai_key
+                    providers_block[provider_name] = provider_cfg
+
         config_data['providers'] = providers_block
     except Exception:
         # Non-fatal; Pydantic may still raise if keys are missing

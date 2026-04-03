@@ -44,6 +44,7 @@ from .config import (
     DeepgramProviderConfig,
     GoogleProviderConfig,
     OpenAIRealtimeProviderConfig,
+    AzureOpenAIRealtimeProviderConfig,
 )
 from .pipelines import PipelineOrchestrator, PipelineOrchestratorError, PipelineResolution
 from .logging_config import get_logger, configure_logging
@@ -54,6 +55,7 @@ from .providers.base import AIProviderInterface
 from .providers.deepgram import DeepgramProvider
 from .providers.local import LocalProvider
 from .providers.openai_realtime import OpenAIRealtimeProvider
+from .providers.azure_openai_realtime import AzureOpenAIRealtimeProvider
 from .providers.google_live import GoogleLiveProvider
 from .providers.elevenlabs_agent import ElevenLabsAgentProvider
 from .providers.elevenlabs_config import ElevenLabsAgentConfig
@@ -1286,6 +1288,7 @@ class Engine:
                                     "openai": "openai_realtime",
                                     "deepgram_agent": "deepgram",
                                     "google": "google_live",
+                                    "azure_openai": "azure_openai_realtime",
                                 }
                                 resolved_context_provider = provider_aliases.get(ctx_provider, ctx_provider)
                                 if resolved_context_provider and resolved_context_provider not in self.providers:
@@ -1388,6 +1391,7 @@ class Engine:
             "openai": "openai_realtime",
             "deepgram_agent": "deepgram",
             "google": "google_live",
+            "azure_openai": "azure_openai_realtime",
         }
         resolved_context_provider = provider_aliases.get(context_provider, context_provider)
         if resolved_context_provider and resolved_context_provider not in self.providers:
@@ -2190,6 +2194,29 @@ class Engine:
                     )
                     logger.info(
                         "Provider 'openai_realtime' loaded successfully",
+                        audio_gating_enabled=self.audio_gating_manager is not None
+                    )
+
+                    runtime_issues = self._describe_provider_alignment(name, provider)
+                    if runtime_issues:
+                        self.provider_alignment_issues.setdefault(name, []).extend(runtime_issues)
+                elif name == "azure_openai_realtime":
+                    azure_cfg = self._build_azure_openai_realtime_config(provider_config_data)
+                    if not azure_cfg:
+                        continue
+
+                    provider = AzureOpenAIRealtimeProvider(
+                        azure_cfg,
+                        self.on_provider_event,
+                        gating_manager=self.audio_gating_manager
+                    )
+                    provider._session_store = self.session_store
+                    self.providers[name] = provider
+                    self.provider_factories[name] = (
+                        lambda cfg=azure_cfg: AzureOpenAIRealtimeProvider(self._clone_config(cfg), self.on_provider_event, gating_manager=self.audio_gating_manager)
+                    )
+                    logger.info(
+                        "Provider 'azure_openai_realtime' loaded successfully",
                         audio_gating_enabled=self.audio_gating_manager is not None
                     )
 
@@ -3210,6 +3237,7 @@ class Engine:
                 "openai": "openai_realtime",
                 "deepgram_agent": "deepgram",
                 "google": "google_live",
+                "azure_openai": "azure_openai_realtime",
             }
             resolved_provider = (
                 provider_aliases.get(ai_provider_value, ai_provider_value)
@@ -6158,7 +6186,7 @@ class Engine:
             if isinstance(context_block, dict):
                 ctx_provider = (context_block.get("provider") or "").strip()
             if ctx_provider:
-                aliases = {"openai": "openai_realtime", "deepgram_agent": "deepgram"}
+                aliases = {"openai": "openai_realtime", "deepgram_agent": "deepgram", "azure_openai": "azure_openai_realtime"}
                 resolved = aliases.get(ctx_provider, ctx_provider)
                 if resolved in self.providers and session.provider_name != resolved:
                     prev = session.provider_name
@@ -8446,6 +8474,40 @@ class Engine:
             logger.error("Failed to build OpenAIRealtimeProviderConfig", error=str(exc), exc_info=True)
             return None
 
+    def _build_azure_openai_realtime_config(self, provider_cfg: Dict[str, Any]) -> Optional[AzureOpenAIRealtimeProviderConfig]:
+        """Construct an AzureOpenAIRealtimeProviderConfig from raw provider settings."""
+        try:
+            merged = dict(provider_cfg)
+            
+            # SECURITY: API key ONLY from environment variables, never from YAML
+            merged['api_key'] = os.getenv('AZURE_OPENAI_API_KEY')  # Force from .env only
+            
+            try:
+                instr = (merged.get("instructions") or "").strip()
+            except Exception:
+                instr = ""
+            if not instr:
+                merged["instructions"] = getattr(self.config.llm, "prompt", None)
+            try:
+                greet = (merged.get("greeting") or "").strip()
+            except Exception:
+                greet = ""
+            if not greet:
+                merged["greeting"] = getattr(self.config.llm, "initial_greeting", None)
+
+            cfg = AzureOpenAIRealtimeProviderConfig(**merged)
+            if not cfg.enabled:
+                logger.info("Azure OpenAI Realtime provider disabled in configuration; skipping initialization.")
+                return None
+            if not cfg.api_key:
+                logger.warning("Azure OpenAI Realtime provider API key missing (AZURE_OPENAI_API_KEY) - provider will show as Not Ready")
+            if not cfg.resource_name:
+                logger.warning("Azure OpenAI Realtime provider resource_name missing - provider will show as Not Ready")
+            return cfg
+        except Exception as exc:
+            logger.error("Failed to build AzureOpenAIRealtimeProviderConfig", error=str(exc), exc_info=True)
+            return None
+
     def _build_elevenlabs_config(self, provider_cfg: Dict[str, Any]) -> Optional[ElevenLabsAgentConfig]:
         """Construct an ElevenLabsAgentConfig from raw provider settings."""
         try:
@@ -8611,6 +8673,7 @@ class Engine:
             # Provider configs (raw YAML dicts)
             providers_cfg = getattr(self.config, "providers", {}) or {}
             oair_cfg = providers_cfg.get("openai_realtime", {}) or {}
+            azr_cfg = providers_cfg.get("azure_openai_realtime", {}) or {}
             dg_cfg = providers_cfg.get("deepgram", {}) or {}
 
             # Normalize key fields
@@ -8624,6 +8687,11 @@ class Engine:
             oair_target_rate = int(oair_cfg.get("target_sample_rate_hz") or 8000)
             oair_in_rate = int(oair_cfg.get("provider_input_sample_rate_hz") or 24000)
             oair_out_rate = int(oair_cfg.get("output_sample_rate_hz") or 24000)
+
+            azr_target_enc = _lower_str(azr_cfg, "target_encoding", "ulaw")
+            azr_target_rate = int(azr_cfg.get("target_sample_rate_hz") or 8000)
+            azr_in_rate = int(azr_cfg.get("provider_input_sample_rate_hz") or 24000)
+            azr_out_rate = int(azr_cfg.get("output_sample_rate_hz") or 24000)
 
             dg_in_enc = _lower_str(dg_cfg, "input_encoding", "linear16")
             try:
@@ -8654,6 +8722,12 @@ class Engine:
                 "openai_realtime_output_sample_rate_hz": oair_out_rate,
                 "openai_realtime_target_encoding": oair_target_enc,
                 "openai_realtime_target_sample_rate_hz": oair_target_rate,
+                "azure_openai_realtime_input_encoding": _lower_str(azr_cfg, "input_encoding", ""),
+                "azure_openai_realtime_input_sample_rate_hz": int(azr_cfg.get("input_sample_rate_hz") or 0),
+                "azure_openai_realtime_provider_input_sample_rate_hz": azr_in_rate,
+                "azure_openai_realtime_output_sample_rate_hz": azr_out_rate,
+                "azure_openai_realtime_target_encoding": azr_target_enc,
+                "azure_openai_realtime_target_sample_rate_hz": azr_target_rate,
                 "deepgram_input_encoding": dg_in_enc,
                 "deepgram_input_sample_rate_hz": dg_in_rate,
                 "deepgram_output_encoding": dg_out_enc,
@@ -8698,6 +8772,22 @@ class Engine:
                     suggestion="Set providers.openai_realtime.target_encoding to 'slin16' or change audiosocket.format",
                 )
 
+            # Azure OpenAI target vs audiosocket.format
+            if as_fmt in ("ulaw", "mulaw", "g711_ulaw", "mu-law") and azr_target_enc not in ("ulaw", "mulaw", "g711_ulaw", "mu-law"):
+                logger.warning(
+                    "Azure OpenAI target encoding misaligned with audiosocket.format",
+                    audiosocket_format=as_fmt,
+                    azure_target_encoding=azr_target_enc,
+                    suggestion="Set providers.azure_openai_realtime.target_encoding to 'ulaw' or change audiosocket.format",
+                )
+            if as_fmt in ("slin16", "linear16", "pcm16") and azr_target_enc not in ("slin16", "linear16", "pcm16"):
+                logger.warning(
+                    "Azure OpenAI target encoding misaligned with audiosocket.format",
+                    audiosocket_format=as_fmt,
+                    azure_target_encoding=azr_target_enc,
+                    suggestion="Set providers.azure_openai_realtime.target_encoding to 'slin16' or change audiosocket.format",
+                )
+
             # OpenAI provider IO rates
             if oair_in_rate and oair_in_rate < 24000:
                 logger.warning(
@@ -8710,6 +8800,20 @@ class Engine:
                     "OpenAI output_sample_rate_hz suboptimal",
                     value=oair_out_rate,
                     suggestion="Set providers.openai_realtime.output_sample_rate_hz to 24000",
+                )
+
+            # Azure OpenAI provider IO rates
+            if azr_in_rate and azr_in_rate < 24000:
+                logger.warning(
+                    "Azure OpenAI provider_input_sample_rate_hz suboptimal",
+                    value=azr_in_rate,
+                    suggestion="Set providers.azure_openai_realtime.provider_input_sample_rate_hz to 24000",
+                )
+            if azr_out_rate and azr_out_rate < 24000:
+                logger.warning(
+                    "Azure OpenAI output_sample_rate_hz suboptimal",
+                    value=azr_out_rate,
+                    suggestion="Set providers.azure_openai_realtime.output_sample_rate_hz to 24000",
                 )
 
             # Deepgram input encoding vs audiosocket (suppress intentional PCM↔μ-law bridge)
@@ -11464,6 +11568,7 @@ class Engine:
                 "openai": "openai_realtime",
                 "deepgram_agent": "deepgram",
                 "google": "google_live",
+                "azure_openai": "azure_openai_realtime",
             }
             provider_name = aliases.get(str(provider_name or "").strip(), provider_name)
         except Exception:
